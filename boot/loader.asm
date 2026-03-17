@@ -10,9 +10,7 @@ start:
     mov si, msg
     call print
 
-; -------------------------
 ; 进入保护模式
-; -------------------------
 	cli
 
 	in al, 0x92
@@ -43,14 +41,13 @@ print:
 
 msg db "Loading...",0
 
-; =========================
+; -------------------
 ; GDT
-; =========================
+; -------------------
 gdt_start:
-dq 0
-
-dq 0x00cf9a000000ffff   ; code
-dq 0x00cf92000000ffff   ; data
+dq 0                  ; NULL
+dq 0x00cf9a000000ffff ; code segment
+dq 0x00cf92000000ffff ; data segment
 
 gdt_end:
 
@@ -79,70 +76,70 @@ pmode:
     mov bl, 200
     call read_disk
 
-	jmp 0x100000
+	; jmp 0x100000
 
 ; -------------------------
 ; ELF 解析
 ; -------------------------
-;     mov esi, 0x100000
-;
-;     mov eax, [esi]
-;     cmp eax, 0x464c457f
-;     jne $
-;
-;     mov ebx, [esi+28]
-;     add ebx, esi
-;
-;     movzx ecx, word [esi+44]
-;
-; ph_loop:
-;     test ecx, ecx
-;     jz done
-;
-;     mov eax, [ebx+4]
-;     add eax, esi
-;
-;     mov edi, [ebx+12]
-;     mov edx, [ebx+16]
-;
-;     push ebx
-;     push ecx
-;     call memcpy
-;     pop ecx
-;     pop ebx
-;
-;     add ebx, 32
-;     dec ecx
-;     jmp ph_loop
-;
-; done:
-;     mov eax, [esi+24]
-;     jmp eax
-;
-; ; =========================
-; memcpy:
-;     push esi
-;     push edi
-;     push ecx
-;
-;     mov esi, eax
-;     mov ecx, edx
-;
-; .copy:
-;     test ecx, ecx
-;     jz .done
-;     mov al, [esi]
-;     mov [edi], al
-;     inc esi
-;     inc edi
-;     dec ecx
-;     jmp .copy
-;
-; .done:
-;     pop ecx
-;     pop edi
-;     pop esi
-;     ret
+    mov esi, 0x100000
+
+    mov eax, [esi]
+    cmp eax, 0x464c457f
+    jne $
+
+    mov ebx, [esi+28]
+    add ebx, esi
+
+    movzx ecx, word [esi+44]
+
+ph_loop:
+    test ecx, ecx
+    jz done
+
+    mov eax, [ebx+4]
+    add eax, esi
+
+    mov edi, [ebx+12]
+    mov edx, [ebx+16]
+
+    push ebx
+    push ecx
+    call memcpy
+    pop ecx
+    pop ebx
+
+    add ebx, 32
+    dec ecx
+    jmp ph_loop
+
+done:
+    mov eax, [esi+24]
+    jmp eax
+
+; =========================
+memcpy:
+    push esi
+    push edi
+    push ecx
+
+    mov esi, eax
+    mov ecx, edx
+
+.copy:
+    test ecx, ecx
+    jz .done
+    mov al, [esi]
+    mov [edi], al
+    inc esi
+    inc edi
+    dec ecx
+    jmp .copy
+
+.done:
+    pop ecx
+    pop edi
+    pop esi
+    ret
 
 ; =========================
 ; 复用 boot 的 read_disk
