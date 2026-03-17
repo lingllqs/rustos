@@ -1,240 +1,208 @@
+; =========================
+; boot/loader.asm
+; =========================
 [org 0x1000]
+bits 16
 
-dd 0x55aa; 魔数，用于判断错误
+dw 0x55aa
 
-kernel_size: dd KERNEL_SIZE; 内核大小
-
-; 打印字符串
-mov si, loading
-call print
-
-
-detect_memory:
-    ; 将 ebx 置为 0
-    xor ebx, ebx
-
-    ; es:di 结构体的缓存位置
-    mov ax, 0
-    mov es, ax
-    mov edi, ards_buffer
-
-    mov edx, 0x534d4150; 固定签名
-
-.next:
-    ; 子功能号
-    mov eax, 0xe820
-    ; ards 结构的大小 (字节)
-    mov ecx, 20
-    ; 调用 0x15 系统调用
-    int 0x15
-
-    ; 如果 CF 置位，表示出错
-    jc error
-
-    ; 将缓存指针指向下一个结构体
-    add di, cx
-
-    ; 将结构体数量加一
-    inc dword [ards_count]
-
-    cmp ebx, 0
-    jnz .next
-
-    mov si, detecting
+start:
+    mov si, msg
     call print
 
+; -------------------------
+; 进入保护模式
+; -------------------------
+	cli
 
-    ; mov byte [0xb8000], 'P'
+	in al, 0x92
+	or al, 2
+	out 0x92, al
 
-    jmp prepare_protected_mode
+	lgdt [gdt_ptr]
 
-prepare_protected_mode:
+	mov eax, cr0
+	or eax, 1
+	mov cr0, eax
 
-    cli; 关闭中断
+	jmp 0x08:pmode
 
-    ; 打开 A20 线
-    in al,  0x92
-    or al, 0b10
-    out 0x92, al
-
-    lgdt [gdt_ptr]; 加载 gdt
-
-    ; 启动保护模式
-    mov eax, cr0
-    or eax, 1
-    mov cr0, eax
-
-    ; 用跳转来刷新缓存，启用保护模式
-    jmp dword code_selector:protect_mode
-
+; =========================
+; 16位函数
+; =========================
 print:
     mov ah, 0x0e
 .next:
-    mov al, [si]
-    cmp al, 0
+    lodsb
+    or al, al
     jz .done
     int 0x10
-    inc si
     jmp .next
 .done:
     ret
 
-loading:
-    db "Loading RustOS...", 10, 13, 0; \n\r
-detecting:
-    db "Detecting Memory Success...", 10, 13, 0; \n\r
+msg db "Loading...",0
 
-error:
-    mov si, .msg
-    call print
-    hlt; 让 CPU 停止
-    jmp $
-    .msg db "Loading Error!!!", 10, 13, 0
+; =========================
+; GDT
+; =========================
+gdt_start:
+dq 0
 
-[bits 32]
-protect_mode:
-    mov ax, data_selector
+dq 0x00cf9a000000ffff   ; code
+dq 0x00cf92000000ffff   ; data
+
+gdt_end:
+
+gdt_ptr:
+    dw gdt_end - gdt_start - 1
+    dd gdt_start
+
+; =========================
+; 32位代码
+; =========================
+bits 32
+pmode:
+
+    mov ax, 0x10
     mov ds, ax
     mov es, ax
-    mov fs, ax
-    mov gs, ax
-    mov ss, ax; 初始化段寄存器
+    mov ss, ax
 
-    mov esp, 0x10000; 修改栈顶
+    mov esp, 0x90000
 
-    sub esp, 4 * 3; 三个变量
-    mov dword [esp], 0; 读出的数量
-    mov dword [esp + 4], 10     ; ecx 初始扇区位置
-    mov dword [esp + 8], 0x18000; edi 目标内存位置
-    BLOCK_SIZE equ 200          ; 一次读取的扇区数量
+; -------------------------
+; 读取 kernel ELF
+; -------------------------
+    mov edi, 0x100000
+    mov ecx, 5
+    mov bl, 200
+    call read_disk
 
-.read_block:
+	jmp 0x100000
 
-    mov edi, [esp + 8]  ; 读取的目标内存
-    mov ecx, [esp + 4]  ; 起始扇区
-    mov bl, BLOCK_SIZE  ; 扇区数量
+; -------------------------
+; ELF 解析
+; -------------------------
+;     mov esi, 0x100000
+;
+;     mov eax, [esi]
+;     cmp eax, 0x464c457f
+;     jne $
+;
+;     mov ebx, [esi+28]
+;     add ebx, esi
+;
+;     movzx ecx, word [esi+44]
+;
+; ph_loop:
+;     test ecx, ecx
+;     jz done
+;
+;     mov eax, [ebx+4]
+;     add eax, esi
+;
+;     mov edi, [ebx+12]
+;     mov edx, [ebx+16]
+;
+;     push ebx
+;     push ecx
+;     call memcpy
+;     pop ecx
+;     pop ebx
+;
+;     add ebx, 32
+;     dec ecx
+;     jmp ph_loop
+;
+; done:
+;     mov eax, [esi+24]
+;     jmp eax
+;
+; ; =========================
+; memcpy:
+;     push esi
+;     push edi
+;     push ecx
+;
+;     mov esi, eax
+;     mov ecx, edx
+;
+; .copy:
+;     test ecx, ecx
+;     jz .done
+;     mov al, [esi]
+;     mov [edi], al
+;     inc esi
+;     inc edi
+;     dec ecx
+;     jmp .copy
+;
+; .done:
+;     pop ecx
+;     pop edi
+;     pop esi
+;     ret
 
-    call read_disk ; 读取内核
-
-    add dword [esp + 8], BLOCK_SIZE * 512  ; edi 目标内存位置
-    add dword [esp + 4], BLOCK_SIZE        ; ecx 初始扇区位置
-
-    mov eax, [kernel_size]
-    add dword [esp], BLOCK_SIZE * 512
-    cmp dword [esp], eax; 判断已读数量与 kernel_size 的大小
-
-    jl .read_block
-
-    mov eax, 0x20220205; 内核魔数
-    mov ebx, ards_count; ards 数量指针
-
-    jmp dword code_selector:0x20000
-
-    ud2; 表示出错
-
+; =========================
+; 复用 boot 的 read_disk
+; =========================
 read_disk:
-
-    ; 设置读写扇区的数量
     mov dx, 0x1f2
     mov al, bl
     out dx, al
 
-    inc dx; 0x1f3
-    mov al, cl; 起始扇区的前八位
+    inc dx
+    mov al, cl
     out dx, al
 
-    inc dx; 0x1f4
+    inc dx
     shr ecx, 8
-    mov al, cl; 起始扇区的中八位
+    mov al, cl
     out dx, al
 
-    inc dx; 0x1f5
+    inc dx
     shr ecx, 8
-    mov al, cl; 起始扇区的高八位
+    mov al, cl
     out dx, al
 
-    inc dx; 0x1f6
+    inc dx
     shr ecx, 8
-    and cl, 0b1111; 将高四位置为 0
+    and cl, 0x0f
 
-    mov al, 0b1110_0000;
+    mov al, 0xe0
     or al, cl
-    out dx, al; 主盘 - LBA 模式
-
-    inc dx; 0x1f7
-    mov al, 0x20; 读硬盘
     out dx, al
 
-    xor ecx, ecx; 将 ecx 清空
-    mov cl, bl; 得到读写扇区的数量
+    inc dx
+    mov al, 0x20
+    out dx, al
 
-    .read:
-        push cx; 保存 cx
-        call .waits; 等待数据准备完毕
-        call .reads; 读取一个扇区
-        pop cx; 恢复 cx
-        loop .read
+    mov cl, bl
 
+.r:
+    push cx
+    call .wait
+    call .read
+    pop cx
+    loop .r
     ret
 
-    .waits:
-        mov dx, 0x1f7
-        .check:
-            in al, dx
-            jmp $+2; nop 直接跳转到下一行
-            jmp $+2; 一点点延迟
-            jmp $+2
-            and al, 0b1000_1000
-            cmp al, 0b0000_1000
-            jnz .check
-        ret
+.wait:
+    mov dx, 0x1f7
+.w:
+    in al, dx
+    and al, 0x88
+    cmp al, 0x08
+    jne .w
+    ret
 
-    .reads:
-        mov dx, 0x1f0
-        mov cx, 256; 一个扇区 256 字
-        .readw:
-            in ax, dx
-            jmp $+2; 一点点延迟
-            jmp $+2
-            jmp $+2
-            mov [edi], ax
-            add edi, 2
-            loop .readw
-        ret
-
-code_selector equ (1 << 3)
-data_selector equ (2 << 3)
-
-memory_base equ 0; 内存开始的位置：基地址
-
-; 内存界限 4G / 4K - 1
-memory_limit equ ((1024 * 1024 * 1024 * 4) / (1024 * 4)) - 1
-
-gdt_ptr:
-    dw (gdt_end - gdt_base) - 1
-    dd gdt_base
-gdt_base:
-    dd 0, 0; NULL 描述符
-gdt_code:
-    dw memory_limit & 0xffff; 段界限 0 ~ 15 位
-    dw memory_base & 0xffff; 基地址 0 ~ 15 位
-    db (memory_base >> 16) & 0xff; 基地址 16 ~ 23 位
-    ; 存在 - dlp 0 - S _ 代码 - 非依从 - 可读 - 没有被访问过
-    db 0b_1_00_1_1_0_1_0;
-    ; 4k - 32 位 - 不是 64 位 - 段界限 16 ~ 19
-    db 0b1_1_0_0_0000 | (memory_limit >> 16) & 0xf;
-    db (memory_base >> 24) & 0xff; 基地址 24 ~ 31 位
-gdt_data:
-    dw memory_limit & 0xffff; 段界限 0 ~ 15 位
-    dw memory_base & 0xffff; 基地址 0 ~ 15 位
-    db (memory_base >> 16) & 0xff; 基地址 16 ~ 23 位
-    ; 存在 - dlp 0 - S _ 数据 - 向上 - 可写 - 没有被访问过
-    db 0b_1_00_1_0_0_1_0;
-    ; 4k - 32 位 - 不是 64 位 - 段界限 16 ~ 19
-    db 0b1_1_0_0_0000 | (memory_limit >> 16) & 0xf;
-    db (memory_base >> 24) & 0xff; 基地址 24 ~ 31 位
-gdt_end:
-
-ards_count:
-    dd 0
-ards_buffer:
+.read:
+    mov dx, 0x1f0
+    mov cx, 256
+.l:
+    in ax, dx
+    mov [edi], ax
+    add edi, 2
+    loop .l
+    ret

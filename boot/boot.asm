@@ -1,128 +1,124 @@
+; =========================
+; boot/boot.asm
+; =========================
 [org 0x7c00]
+bits 16
 
-; 设置屏幕模式为文本模式，清除屏幕
-mov ax, 3
-int 0x10
+start:
+    ; 设置文本模式，清屏
+    mov ax, 3
+    int 0x10
 
-; 初始化段寄存器
-mov ax, 0
-mov ds, ax
-mov es, ax
-mov ss, ax
-mov sp, 0x7c00
+    ; 初始化段寄存器
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov sp, 0x7c00
 
-mov si, booting
-call print
+    mov si, booting
+    call print
 
-mov edi, 0x1000; 读取的目标内存
-mov ecx, 2; 起始扇区
-mov bl, 4; 扇区数量
+    ; 读取 loader (从 LBA=2 开始)
+    mov edi, 0x1000      ; 加载地址
+    mov ecx, 1           ; 起始扇区
+    mov bl, 4            ; 扇区数
+    call read_disk
 
-call read_disk
+    ; 检查 loader 魔数
+    cmp word [0x1000], 0x55aa
+    jne error
 
-cmp word [0x1000], 0x55aa
-jnz error
+    jmp 0:0x1000
 
-jmp 0:0x1008
+hang:
+    jmp hang
 
-; 阻塞
-jmp $
-
+; =========================
+; LBA28 读取
+; =========================
 read_disk:
-
-    ; 设置读写扇区的数量
     mov dx, 0x1f2
     mov al, bl
     out dx, al
 
-    inc dx; 0x1f3
-    mov al, cl; 起始扇区的前八位
+    inc dx        ; 1f3
+    mov al, cl
     out dx, al
 
-    inc dx; 0x1f4
+    inc dx        ; 1f4
     shr ecx, 8
-    mov al, cl; 起始扇区的中八位
+    mov al, cl
     out dx, al
 
-    inc dx; 0x1f5
+    inc dx        ; 1f5
     shr ecx, 8
-    mov al, cl; 起始扇区的高八位
+    mov al, cl
     out dx, al
 
-    inc dx; 0x1f6
+    inc dx        ; 1f6
     shr ecx, 8
-    and cl, 0b1111; 将高四位置为 0
+    and cl, 0x0f
 
-    mov al, 0b1110_0000;
+    mov al, 0xe0
     or al, cl
-    out dx, al; 主盘 - LBA 模式
-
-    inc dx; 0x1f7
-    mov al, 0x20; 读硬盘
     out dx, al
 
-    xor ecx, ecx; 将 ecx 清空
-    mov cl, bl; 得到读写扇区的数量
+    inc dx        ; 1f7
+    mov al, 0x20
+    out dx, al
 
-    .read:
-        push cx; 保存 cx
-        call .waits; 等待数据准备完毕
-        call .reads; 读取一个扇区
-        pop cx; 恢复 cx
-        loop .read
+    mov cl, bl
 
+.read:
+    push cx
+    call .wait
+    call .read_sector
+    pop cx
+    loop .read
     ret
 
-    .waits:
-        mov dx, 0x1f7
-        .check:
-            in al, dx
-            jmp $+2; nop 直接跳转到下一行
-            jmp $+2; 一点点延迟
-            jmp $+2
-            and al, 0b1000_1000
-            cmp al, 0b0000_1000
-            jnz .check
-        ret
+.wait:
+    mov dx, 0x1f7
+.check:
+    in al, dx
+    and al, 0x88
+    cmp al, 0x08
+    jne .check
+    ret
 
-    .reads:
-        mov dx, 0x1f0
-        mov cx, 256; 一个扇区 256 字
-        .readw:
-            in ax, dx
-            jmp $+2; 一点点延迟
-            jmp $+2
-            jmp $+2
-            mov [edi], ax
-            add edi, 2
-            loop .readw
-        ret
+.read_sector:
+    mov dx, 0x1f0
+    mov cx, 256
 
+.next:
+    in ax, dx
+    mov [edi], ax
+    add edi, 2
+    loop .next
+    ret
+
+; =========================
 print:
     mov ah, 0x0e
 .next:
-    mov al, [si]
+    lodsb
     cmp al, 0
-    jz .done
+    je .done
     int 0x10
-    inc si
     jmp .next
 .done:
     ret
 
-booting:
-    db "Booting RustOS...", 10, 13, 0; \n\r
+booting db "Booting...", 0x0a, 0x0d, 0x00
 
 error:
-    mov si, .msg
+    mov si, err
     call print
-    hlt; 让 CPU 停止
+    hlt
     jmp $
-    .msg db "Booting Error!!!", 10, 13, 0
 
-; 填充 0
-times 510 - ($ - $$) db 0
+err db "Boot Error", 0x0a, 0x0d, 0x00
 
-; 主引导扇区的最后两个字节必须是 0x55 0xaa
-; dw 0xaa55
-db 0x55, 0xaa
+times 510-($-$$) db 0
+dw 0xaa55

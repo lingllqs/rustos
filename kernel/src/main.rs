@@ -4,14 +4,12 @@
 use core::panic::PanicInfo;
 
 #[unsafe(no_mangle)]
-extern "C" fn _start() -> ! {
-    let vga = 0xb8000 as *mut u8;
+pub extern "C" fn _start() -> ! {
+    let vga = 0xb8000 as *mut u16;
 
     unsafe {
-        *vga = b'H';
-        *vga.offset(1) = 0x0f;
-        *vga.offset(2) = b'i';
-        *vga.offset(3) = 0x0f;
+        *vga.offset(0) = 0x0f48; // 'H'
+        *vga.offset(1) = 0x0f69; // 'i'
     }
 
     loop {}

@@ -18,6 +18,7 @@ cd ..
 echo "Converting kernel ELF to binary..."
 
 objcopy -O binary kernel/target/x86_64-unknown-none/debug/kernel build/kernel.bin
+# cp -r kernel/target/x86_64-unknown-none/debug/kernel build/kernel.bin
 
 echo "Creating disk image..."
 
