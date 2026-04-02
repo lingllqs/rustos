@@ -9,7 +9,7 @@ pub extern "C" fn _start() -> ! {
 
     unsafe {
         *vga = b'R';
-        vga.add(1) = 0x0f;
+        *vga.add(1) = 0x0f;
     }
 
     loop {}

@@ -19,4 +19,12 @@ print:
 .done:
 	ret
 
-loading db "Loadint RustOS...", 0x0a, 0x0d, 0x00
+loading:
+	db "Loading RustOS...", 0x0a, 0x0d, 0x00
+
+error:
+	mov si, .msg
+	call print
+	hlt
+	jmp $
+	.msg db "Loading Error...", 0x0a, 0x0d, 0x00

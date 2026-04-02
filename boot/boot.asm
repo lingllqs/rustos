@@ -19,6 +19,11 @@ mov ecx, 2      ; 起始扇区
 mov bl, 4       ; 扇区数
 call read_disk
 
+cmp word [0x1000], 0x55aa
+jnz error
+
+jmp 0:0x1002
+
 jmp $
 
 ; 读取硬盘函数
@@ -28,7 +33,7 @@ read_disk:
 	out dx, al
 
 	mov dx, 0x1f3 ; 起始扇区低8位
-	mov al, cl;起始扇区低8位
+	mov al, cl    ; 起始扇区低8位
 	out dx, al
 
 	inc dx ; 0x1f4
@@ -43,8 +48,10 @@ read_disk:
 
 	inc dx ; 0x1f6
 	shr ecx, 8
-	mov al, cl
-	or al, 0b11100000 ; 固定1 LBA模式1 固定1 主盘0
+	and cl, 0b1111
+
+	mov al, 0b11100000
+	or al, cl ; 固定1 LBA模式1 固定1 主盘0
 	out dx, al
 
 	mov dx, 0x1f7
@@ -58,32 +65,38 @@ read_disk:
 	.read:
 		push cx
 		call .waits
-		call .reads
+		call .read_sector
 		pop cx
 		loop .read
+	ret
 	
 	; 等待硬盘准备就绪
 	.waits:
 		mov dx, 0x1f7
 		.check:
 			in al, dx
+			jmp $+2
+			jmp $+2
+			jmp $+2
 			and al, 0b10001000 ; 3bit: 数据准备完毕1 7bit: 硬盘繁忙1
 			cmp al, 0b00001000 ; 判断是否准备就绪
 			jnz .check
 		ret
 	
-	.reads:
+	; 读取扇区
+	.read_sector:
 		mov dx, 0x1f0
 		mov cx, 256
-		.readw:
+		.read_word:
 			in ax, dx
+			jmp $+2
+			jmp $+2
+			jmp $+2
 			mov [edi], ax
 			add edi, 2
-			loop .readw
+			loop .read_word
 		ret
 	
-	ret
-
 ; ; 写硬盘函数
 ; write_disk:
 ; 	mov dx, 0x1f2 ; 设置读取扇区数
@@ -150,13 +163,13 @@ read_disk:
 ; 打印函数
 print:
 	mov ah, 0x0e
-.next:
-	mov al, [si]
-	cmp al, 0x00
-	jz .done
-	int 0x10
-	inc si
-	jmp .next
+	.next:
+		mov al, [si]
+		cmp al, 0x00
+		jz .done
+		int 0x10
+		inc si
+		jmp .next
 .done:
 	ret
 
@@ -165,10 +178,10 @@ error:
 	call print
 	hlt
 	jmp $
-	.msg db "Loading Error...", 0x0a, 0x0d, 0x00
+	.msg db "Loading Loader Error...", 0x0a, 0x0d, 0x00
 
 msg db "Booting RustOS...", 0x0a, 0x0d, 0x00
 
-times 510 - ($-$$) db 0
+times 510 - ($-$$) db 0x00
 
 db 0x55, 0xaa
