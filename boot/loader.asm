@@ -30,17 +30,6 @@ detect_memory:
 	mov si, detecting
 	call print
 
-	; mov cx, [ards_count]
-	; mov si, 0
-	; .show:
-	; 	mov eax, [ards_buffer+si]
-	; 	mov ebx, [ards_buffer+si+8]  ; 内存大小
-	; 	mov edx, [ards_buffer+si+16] ; 内存类型
-	; 	add si, 24
-	; 	loop .show
-
-
-jmp $
 
 ; 打印函数
 print:
