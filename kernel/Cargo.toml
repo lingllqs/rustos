@@ -10,3 +10,8 @@ panic = "abort" # disable unwinding
 
 [profile.release]
 panic = "abort"
+
+[[bin]]
+name = "kernel"
+test = false
+bench = false

@@ -8,7 +8,7 @@ pub extern "C" fn _start() -> ! {
     let vga = 0xb8000 as *mut u8;
 
     unsafe {
-        *vga = b'R';
+        *vga = b'K';
         *vga.add(1) = 0x0f;
     }
 
