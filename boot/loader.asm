@@ -1,4 +1,5 @@
 [org 0x1000]
+[bits 16]
 
 dw 0x55aa ; 用于判断是否读取错误(in boot.asm)
 
@@ -48,30 +49,30 @@ prepare_protect_mode:
 	mov cr0, eax
 
 	; 跳转刷新缓存，真正启用保护模式
-	jmp dword code_selector:protect_mode
+	jmp dword code_selector:protect_mode_entry
 
 [bits 32]
-protect_mode:
-	mov ax, data_selector
+protect_mode_entry:
+	mov ax, data_selector ; 0x10
 	mov ds, ax
 	mov es, ax
 	mov fs, ax
 	mov gs, ax
 	mov ss, ax
 
-	mov esp, 0x10000
+	mov esp, 0x90000
 
-	; 读取内核 kernel
-	mov edi, 0x100000 ; 目标内存
-	mov ecx, 20     ; 内核起始扇区
-	mov bl, 10      ; 扇区数
+	mov edi, 0x100000
+	mov ecx, 20
+	mov bl, 40
 	call read_disk
 
-	jmp dword code_selector:0x100000
+	jmp $
 
+	jmp 0x100000
 
-code_selector equ (1 << 3)
-data_selector equ (2 << 3)
+code_selector equ (1 << 3) ; 代码段
+data_selector equ (2 << 3) ; 数据段
 
 memory_base equ 0
 memory_limit equ ((1024 * 1024 * 1024 * 4) / (4 * 1024)) - 1
@@ -195,4 +196,3 @@ error:
 ards_count:
 	dw 0
 ards_buffer:
-

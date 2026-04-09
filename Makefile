@@ -20,7 +20,7 @@ $(BUILD_DIR)/%.bin: $(BOOT_DIR)/%.asm
 
 $(BUILD_DIR)/kernel.bin:
 	cd kernel && cargo build
-	objcopy -O binary ./kernel/target/x86_64-rustos/debug/kernel $@
+	objcopy -O binary kernel/target/x86_64-rustos/debug/kernel $@
 
 .PHONY: qemu
 qemu: $(IMG)

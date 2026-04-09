@@ -28,8 +28,6 @@ jnz error
 
 jmp 0:0x1002
 
-jmp $
-
 ; 读取硬盘函数
 read_disk:
 	mov dx, 0x1f2 ; 设置读取扇区数
@@ -100,69 +98,6 @@ read_disk:
 			add edi, 2
 			loop .read_word
 		ret
-	
-; ; 写硬盘函数
-; write_disk:
-; 	mov dx, 0x1f2 ; 设置读取扇区数
-; 	mov al, bl
-; 	out dx, al
-;
-; 	mov dx, 0x1f3 ; 起始扇区低8位
-; 	mov al, cl;起始扇区低8位
-; 	out dx, al
-;
-; 	inc dx ; 0x1f4
-; 	shr ecx, 8
-; 	mov al, cl
-; 	out dx, al
-;
-; 	inc dx ; 0x1f5
-; 	shr ecx, 8
-; 	mov al, cl
-; 	out dx, al
-;
-; 	inc dx ; 0x1f6
-; 	shr ecx, 8
-; 	mov al, cl
-; 	or al, 0b11100000 ; 固定1 LBA模式1 固定1 主盘0
-; 	out dx, al
-;
-; 	mov dx, 0x1f7
-; 	mov al, 0x30 ; 0x20: 读硬盘 | 0x30: 写硬盘
-; 	out dx, al
-;
-; 	; 设置好参数后开始读取硬盘
-; 	xor ecx, ecx
-; 	mov cl, bl ; 读取扇区数
-;
-; 	.write:
-; 		push cx
-; 		call .writes
-; 		call .waits
-; 		pop cx
-; 		loop .write
-;
-; 	; 等待硬盘准备就绪
-; 	.waits:
-; 		mov dx, 0x1f7
-; 		.check:
-; 			in al, dx
-; 			and al, 0b10000000 ; 3bit: 数据准备完毕1 7bit: 硬盘繁忙1
-; 			cmp al, 0b00000000 ; 判断是否准备就绪
-; 			jnz .check
-; 		ret
-;
-; 	.writes:
-; 		mov dx, 0x1f0
-; 		mov cx, 256
-; 		.writew:
-; 			mov ax, [edi]
-; 			out dx, ax
-; 			add edi, 2
-; 			loop .writew
-; 		ret
-;
-; 	ret
 
 ; 打印函数
 print:
