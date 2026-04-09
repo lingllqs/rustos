@@ -1,3 +1,7 @@
+LF equ 0x0d
+CR equ 0x0a
+NUL equ 0x00
+
 [org 0x7c00]
 
 ; 设置屏幕为文本模式
@@ -178,9 +182,9 @@ error:
 	call print
 	hlt
 	jmp $
-	.msg db "Loading Loader Error...", 0x0a, 0x0d, 0x00
+	.msg db "Loading Loader Error...", LF, CR, NUL
 
-msg db "Booting RustOS...", 0x0a, 0x0d, 0x00
+msg db "Booting RustOS...", LF, CR, NUL
 
 times 510 - ($-$$) db 0x00
 

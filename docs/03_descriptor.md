@@ -8,6 +8,7 @@
 +------------------------------------------------------------------------+
 ```
 
+*GDT*
 ```c
 struct {
     unsigned short limit_low : 16; // Limit
@@ -23,4 +24,13 @@ struct {
     unsigned char granularity : 1; // G(granularity)
     unsigned char base_high;       // Base
 };
+```
+
+*段选择字*
+```
+struct {
+    unsigned char RPL : 2; // 请求特权级
+    unsigned char TI: 1;
+    unsigned short index 13; // 全局描述符索引
+}
 ```
