@@ -1,12 +1,16 @@
-LF equ 0x0d
-CR equ 0x0a
+LF equ 0x0a
+CR equ 0x0d
 NUL equ 0x00
 
 [org 0x7c00]
+[bits 16]
 
-; 设置屏幕为文本模式
+; 设置为文本模式
 mov ax, 3
 int 0x10
+
+mov si, msg_booting
+call print
 
 ; 初始化段寄存器
 mov ax, 0
@@ -15,112 +19,99 @@ mov es, ax
 mov ss, ax
 mov sp, 0x7c00
 
-mov si, msg
+mov si, msg_loading
 call print
 
-mov edi, 0x1000 ; 目标内存
-mov ecx, 2      ; 起始扇区
-mov bl, 4       ; 扇区数
-call read_disk
+mov edi, 0x1000
+mov ecx, 2
+mov bl, 8
+call read_disk_lba28
 
 cmp word [0x1000], 0x55aa
 jnz error
 
 jmp 0:0x1002
 
-; 读取硬盘函数
-read_disk:
-	mov dx, 0x1f2 ; 设置读取扇区数
-	mov al, bl
+; ---------------------- 读取硬盘 LBA28 -------------------------
+read_disk_lba28:
+	mov dx, 0x1f2
+	mov al, bl			; bl - 读取的扇区数量
 	out dx, al
 
-	mov dx, 0x1f3 ; 起始扇区低8位
-	mov al, cl    ; 起始扇区低8位
-	out dx, al
-
-	inc dx ; 0x1f4
-	shr ecx, 8
+	inc dx
 	mov al, cl
 	out dx, al
 
-	inc dx ; 0x1f5
-	shr ecx, 8
+	inc dx
+	mov al, ch
+	out dx, al
+
+	inc dx
+	shr ecx, 16
 	mov al, cl
 	out dx, al
 
-	inc dx ; 0x1f6
-	shr ecx, 8
-	and cl, 0b1111
-
-	mov al, 0b11100000
-	or al, cl ; 固定1 LBA模式1 固定1 主盘0
+	inc dx
+	and ch, 0x0f
+	mov al, 0xe0		; 0b1110_0000 - 4bit: 主盘0,从盘1  6bit: LBA1,CHS0
+	or al, ch
 	out dx, al
 
 	mov dx, 0x1f7
-	mov al, 0x20 ; 0x20: 读硬盘 | 0x30: 写硬盘
+	mov al, 0x20		; 0x20: 读  0x30: 写
 	out dx, al
 
-	; 设置好参数后开始读取硬盘
 	xor ecx, ecx
-	mov cl, bl ; 读取扇区数
-
-	.read:
+	mov cl, bl			; 循环次数
+	.read_loop:
 		push cx
-		call .waits
-		call .read_sector
+		call wait_disk
+		call read_sector
 		pop cx
-		loop .read
-	ret
-	
-	; 等待硬盘准备就绪
-	.waits:
-		mov dx, 0x1f7
-		.check:
-			in al, dx
-			jmp $+2
-			jmp $+2
-			jmp $+2
-			and al, 0b10001000 ; 3bit: 数据准备完毕1 7bit: 硬盘繁忙1
-			cmp al, 0b00001000 ; 判断是否准备就绪
-			jnz .check
-		ret
-	
-	; 读取扇区
-	.read_sector:
-		mov dx, 0x1f0
-		mov cx, 256
-		.read_word:
-			in ax, dx
-			jmp $+2
-			jmp $+2
-			jmp $+2
-			mov [edi], ax
-			add edi, 2
-			loop .read_word
-		ret
+		loop .read_loop
 
-; 打印函数
+	ret
+
+wait_disk:
+	mov dx, 0x1f7
+	.check:
+		in al, dx
+		and al, 0x88
+		cmp al, 0x08
+		jnz .check
+	ret
+
+read_sector:
+	mov dx, 0x1f0
+	mov cx, 256
+	.read_word:
+		in ax, dx
+		mov [edi], ax
+		add edi, 2
+		loop .read_word
+	ret
+
+; ---------------------- 打印函数 -------------------------
 print:
 	mov ah, 0x0e
-	.next:
-		mov al, [si]
-		cmp al, 0x00
-		jz .done
-		int 0x10
-		inc si
-		jmp .next
+.next:
+	lodsb				; mov al, [ds:si] -> inc si
+	cmp al, NUL
+	jz .done
+	int 0x10
+	jmp .next
 .done:
 	ret
 
 error:
 	mov si, .msg
 	call print
-	hlt
+	.msg db "Loading Loader Error ...", LF, CR, NUL
 	jmp $
-	.msg db "Loading Loader Error...", LF, CR, NUL
 
-msg db "Booting RustOS...", LF, CR, NUL
+msg_booting db "Booting RustOS ...", LF, CR, NUL
+msg_loading db "Loading Loader ...", LF, CR, NUL
 
-times 510 - ($-$$) db 0x00
 
-db 0x55, 0xaa
+times 510 - ($ - $$) db 0x00
+dw 0xaa55

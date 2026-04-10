@@ -9,18 +9,18 @@ IMG        = $(BUILD_DIR)/os.img
 all: qemu
 
 $(IMG): $(BOOT_BIN) $(LOADER_BIN) $(KERNEL_BIN)
-	dd if=/dev/zero of=$(IMG) bs=512 count=2880
+	dd if=/dev/zero of=$(IMG) bs=1M count=10
 	dd if=$(BOOT_BIN) of=$(IMG) bs=512 count=1 conv=notrunc
-	dd if=$(LOADER_BIN) of=$(IMG) bs=512 count=4 seek=2 conv=notrunc
-	dd if=$(KERNEL_BIN) of=$(IMG) bs=512 seek=20 conv=notrunc
+	dd if=$(LOADER_BIN) of=$(IMG) bs=512 count=8 seek=2 conv=notrunc
+	dd if=$(KERNEL_BIN) of=$(IMG) bs=512 count=120 seek=20 conv=notrunc
 
 $(BUILD_DIR)/%.bin: $(BOOT_DIR)/%.asm
 	mkdir -p $(BUILD_DIR)
 	nasm -f bin $< -o $@
 
-$(BUILD_DIR)/kernel.bin:
-	cd kernel && cargo build
-	objcopy -O binary kernel/target/x86_64-rustos/debug/kernel $@
+$(KERNEL_BIN):
+	cargo build
+	objcopy -O binary ./target/x86_64-rustos/debug/kernel $@
 
 .PHONY: qemu
 qemu: $(IMG)

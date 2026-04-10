@@ -5,11 +5,11 @@ edition = "2024"
 
 [dependencies]
 
-[profile.dev]
-panic = "abort" # disable unwinding
-
-[profile.release]
-panic = "abort"
+# [profile.dev]
+# panic = "abort" # disable unwinding
+#
+# [profile.release]
+# panic = "abort"
 
 [[bin]]
 name = "kernel"

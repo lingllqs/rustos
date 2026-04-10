@@ -1,198 +1,212 @@
+LF equ 0x0a
+CR equ 0x0d
+NUL equ 0x00
+
 [org 0x1000]
 [bits 16]
 
-dw 0x55aa ; 用于判断是否读取错误(in boot.asm)
+dw 0x55aa               ; 魔数
 
-mov si, loading
+; 加载内核（从LBA=20开始，读120个扇区 ≈ 60KB，足够简单内核）
+mov edi, 0x100000
+mov ecx, 20             ; 起始扇区
+mov bl, 120
+call read_disk_lba28
+
+; 打印内核已加载
+mov si, msg_kernel_loaded
 call print
+jmp $
 
-; 内存检测
-detect_memory:
-	xor ebx, ebx
+; ==================== 切换到保护模式并进入64位长模式 ====================
+cli
+in al, 0x92
+or al, 0x02
+out 0x92, al            ; 开启A20
 
-	mov ax, 0
-	mov es, ax
-	mov edi, ards_buffer
+lgdt [gdt_ptr]
+mov eax, cr0
+or eax, 1
+mov cr0, eax
+jmp dword code_sel:protect_mode_entry
 
-	mov edx, 0x534d4150
-
-.next:
-	mov eax, 0xe820 ; 功能号
-	mov ecx, 24     ; 描述内存的结构体大小
-	int 0x15        ; 中断号
-
-	jc error   ; CF 标志为1，表示出错
-	add di, cx ; 指向下一个内存结构
-
-	inc word [ards_count]
-
-	cmp ebx, 0 ; ebx 为0表示结束
-	jnz .next
-
-	mov si, detecting_success
-	call print
-
-; 切换到保护模式前的准备
-prepare_protect_mode:
-	cli
-	; 开启 A20
-	in al, 0x92
-	or al, 0x02
-	out 0x92, al
-
-	; 加载 gdt
-	lgdt [gdt_ptr]
-
-	; 启用保护模式
-	mov eax, cr0
-	or eax, 1
-	mov cr0, eax
-
-	; 跳转刷新缓存，真正启用保护模式
-	jmp dword code_selector:protect_mode_entry
-
+; ====================== 32位临时代码 ======================
 [bits 32]
 protect_mode_entry:
-	mov ax, data_selector ; 0x10
-	mov ds, ax
-	mov es, ax
-	mov fs, ax
-	mov gs, ax
-	mov ss, ax
+    mov ax, data_sel
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    mov esp, 0x90000
 
-	mov esp, 0x90000
+    ; 显示 'P' 表示进入32位保护模式
+    mov byte [0xb8000], 'P'
+    mov byte [0xb8001], 0x0c
 
-	mov edi, 0x100000
-	mov ecx, 20
-	mov bl, 40
-	call read_disk
+    call enable_long_mode
 
-	jmp $
+    lgdt [gdt64_ptr]
+    jmp code_sel64:long_mode_entry
 
-	jmp 0x100000
+; ====================== 启用64位长模式 ======================
+enable_long_mode:
+    ; PAE
+    mov eax, cr4
+    or eax, 1 << 5
+    mov cr4, eax
 
-code_selector equ (1 << 3) ; 代码段
-data_selector equ (2 << 3) ; 数据段
+    ; 设置分页表
+    mov eax, pml4_table
+    mov cr3, eax
 
-memory_base equ 0
-memory_limit equ ((1024 * 1024 * 1024 * 4) / (4 * 1024)) - 1
+    ; EFER.LME = 1
+    mov ecx, 0xC0000080
+    rdmsr
+    or eax, 1 << 8
+    wrmsr
 
+    ; 启用分页 PG
+    mov eax, cr0
+    or eax, 1 << 31
+    mov cr0, eax
+    ret
+
+; ====================== 64位GDT ======================
 gdt_ptr:
-	dw (gdt_end - gdt_base)
-	dd gdt_base
+    dw gdt_end - gdt_base - 1
+    dd gdt_base
 gdt_base:
-	dq 0
-gdt_code:
-	dw memory_limit & 0xffff
-	dw memory_base & 0xffff
-	db (memory_base >> 16) & 0xff
-	db 0b10011010
-	db 0b11110000 | (memory_limit >> 16) & 0xf
-	db (memory_base >> 24) & 0xff
-gdt_data:
-	dw memory_limit & 0xffff
-	dw memory_base & 0xffff
-	db (memory_base >> 16) & 0xff
-	db 0b10010010 ; P|PL|S|Type
-	db 0b11110000 | (memory_limit >> 16) & 0xf
-	db (memory_base >> 24) & 0xff
+    dq 0
+gdt_code: dw 0xffff, 0, 0, 0b10011010, 0b11001111, 0
+gdt_data: dw 0xffff, 0, 0, 0b10010010, 0b11001111, 0
 gdt_end:
 
-; 读取硬盘函数
-read_disk:
-	mov dx, 0x1f2 ; 设置读取扇区数
-	mov al, bl
+code_sel equ gdt_code - gdt_base
+data_sel equ gdt_data - gdt_base
+
+gdt64_ptr:
+    dw gdt64_end - gdt64_base - 1
+    dd gdt64_base
+gdt64_base:
+    dq 0
+gdt64_code: dw 0xffff, 0, 0, 0b10011010, 0b10101111, 0
+gdt64_data: dw 0xffff, 0, 0, 0b10010010, 0b10101111, 0
+gdt64_end:
+
+code_sel64 equ gdt64_code - gdt64_base
+
+; ====================== 分页表（映射前2MB） ======================
+align 4096
+pml4_table:
+    dq pml3_table + 3
+    times 511 dq 0
+
+align 4096
+pml3_table:
+    dq pml2_table + 3
+    times 511 dq 0
+
+align 4096
+pml2_table:
+    mov ecx, 0
+.loop:
+    mov eax, ecx
+    shl eax, 21             ; 2MB huge page
+    or eax, 0x83            ; P + W + PS
+    mov [pml2_table + ecx*8], eax
+    inc ecx
+    cmp ecx, 512
+    jne .loop
+
+; ====================== 64位入口 ======================
+[bits 64]
+long_mode_entry:
+    mov ax, data_sel
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    mov rsp, 0x90000
+
+    ; 显示 'L' 表示成功进入64位长模式
+    mov byte [0xb8000 + 4], 'L'
+    mov byte [0xb8000 + 5], 0x0a
+
+    ; 跳转到Rust内核
+    jmp 0x100000
+
+; ---------------------- 读取硬盘 LBA28 -------------------------
+read_disk_lba28:
+	mov dx, 0x1f2
+	mov al, bl			; bl - 读取的扇区数量
 	out dx, al
 
-	mov dx, 0x1f3 ; 起始扇区低8位
-	mov al, cl    ; 起始扇区低8位
-	out dx, al
-
-	inc dx ; 0x1f4
-	shr ecx, 8
+	inc dx
 	mov al, cl
 	out dx, al
 
-	inc dx ; 0x1f5
-	shr ecx, 8
+	inc dx
+	mov al, ch
+	out dx, al
+
+	inc dx
+	shr ecx, 16
 	mov al, cl
 	out dx, al
 
-	inc dx ; 0x1f6
-	shr ecx, 8
-	and cl, 0b1111
-
-	mov al, 0b11100000
-	or al, cl ; 固定1 LBA模式1 固定1 主盘0
+	inc dx
+	and ch, 0x0f
+	mov al, 0xe0		; 0b1110_0000 - 4bit: 主盘0,从盘1  6bit: LBA1,CHS0
+	or al, ch
 	out dx, al
 
 	mov dx, 0x1f7
-	mov al, 0x20 ; 0x20: 读硬盘 | 0x30: 写硬盘
+	mov al, 0x20		; 0x20: 读  0x30: 写
 	out dx, al
 
-	; 设置好参数后开始读取硬盘
 	xor ecx, ecx
-	mov cl, bl ; 读取扇区数
-
-	.read:
+	mov cl, bl			; 循环次数
+	.read_loop:
 		push cx
-		call .waits
-		call .read_sector
+		call wait_disk
+		call read_sector
 		pop cx
-		loop .read
-	ret
-	
-	; 等待硬盘准备就绪
-	.waits:
-		mov dx, 0x1f7
-		.check:
-			in al, dx
-			jmp $+2
-			jmp $+2
-			jmp $+2
-			and al, 0b10001000 ; 3bit: 数据准备完毕1 7bit: 硬盘繁忙1
-			cmp al, 0b00001000 ; 判断是否准备就绪
-			jnz .check
-		ret
-	
-	; 读取扇区
-	.read_sector:
-		mov dx, 0x1f0
-		mov cx, 256
-		.read_word:
-			in ax, dx
-			jmp $+2
-			jmp $+2
-			jmp $+2
-			mov [edi], ax
-			add edi, 2
-			loop .read_word
-		ret
+		loop .read_loop
 
-; 打印函数
-[bits 16]
+	ret
+
+wait_disk:
+	mov dx, 0x1f7
+	.check:
+		in al, dx
+		and al, 0x88
+		cmp al, 0x08
+		jnz .check
+	ret
+
+read_sector:
+	mov dx, 0x1f0
+	mov cx, 256
+	.read_word:
+		in ax, dx
+		mov [edi], ax
+		add edi, 2
+		loop .read_word
+	ret
+
+; ---------------------- 打印函数 -------------------------
 print:
 	mov ah, 0x0e
-	.next:
-		mov al, [si]
-		cmp al, 0x00
-		jz .done
-		int 0x10
-		inc si
-		jmp .next
+.next:
+	lodsb				; mov al, [ds:si] -> inc si
+	cmp al, NUL
+	jz .done
+	int 0x10
+	jmp .next
 .done:
 	ret
 
-loading: db "Loading RustOS...", 0x0a, 0x0d, 0x00
-detecting_success: db "Detecting Memory Success...", 0x0a, 0x0d, 0x00
-
-error:
-	mov si, .msg
-	call print
-	hlt
-	jmp $
-	.msg db "Loading Error...", 0x0a, 0x0d, 0x00
-
-ards_count:
-	dw 0
-ards_buffer:
+msg_kernel_loaded db "Kernel Loaded, Entering PM...", LF, CR, 0
