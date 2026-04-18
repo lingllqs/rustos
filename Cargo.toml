@@ -1,10 +1,9 @@
 [package]
-name = "kernel"
+name = "rustos"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bootloader = "0.11.15"
 
 [profile.dev]
 panic = "abort" # disable unwinding
@@ -12,7 +11,8 @@ panic = "abort" # disable unwinding
 [profile.release]
 panic = "abort"
 
+# rust-analyzer 诊断信息
 [[bin]]
-name = "kernel"
+name = "rustos"
 test = false
 bench = false
