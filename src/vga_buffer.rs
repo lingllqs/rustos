@@ -7,7 +7,7 @@ pub enum Color {
     Green = 2,
     Cyan = 3,
     Red = 4,
-    Megenta = 5,
+    Magenta = 5,
     Brown = 6,
     LightGray = 7,
     DarkGray = 8,
@@ -26,7 +26,7 @@ struct ColorCode(u8);
 
 impl ColorCode {
     fn new(foreground: Color, background: Color) -> ColorCode {
-        ColorCode((foreground as u8) | (background as u8) << 4)
+        ColorCode((background as u8) << 4 | (foreground as u8))
     }
 }
 
@@ -76,7 +76,9 @@ impl Writer {
     pub fn write_string(&mut self, s: &str) {
         for byte in s.bytes() {
             match byte {
+                // printable ASCII byte or newline
                 0x20..=0x7e | b'\n' => self.write_byte(byte),
+                // not part of printable ASCII range
                 _ => self.write_byte(0xfe),
             }
         }
