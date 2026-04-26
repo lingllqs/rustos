@@ -9,7 +9,6 @@ target = "x86_64-rustos.json"
 [target.'cfg(target_os = "none")']
 runner = "bootimage runner"
 
-
 [target.'cfg(target_os = "linux")']
 rustflags = ["-C", "link-arg=-nostartfiles"]
 
