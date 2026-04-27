@@ -8,7 +8,10 @@ mod vga_buffer;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
-    vga_buffer::print_something();
+    use core::fmt::Write;
+
+    vga_buffer::WRITER.lock().write_str("Hello World!\n").unwrap();
+    write!(vga_buffer::WRITER.lock(), "Rust").unwrap();
 
     loop {}
 }
